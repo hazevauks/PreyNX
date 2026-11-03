@@ -141,6 +141,9 @@ void idSysLocal::DLL_GetFileName( const char *baseName, char *dllName, int maxLe
 	}
 #elif defined( MACOS_X )
 	idStr::snPrintf( dllName, maxLength, "%s.dylib", baseName );
+#elif defined( __SWITCH__ )
+	// the game is linked in; the name is only an identifier
+	idStr::snPrintf( dllName, maxLength, "%s", baseName );
 #else
 #error OS define is required
 #endif

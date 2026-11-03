@@ -1056,36 +1056,4 @@ Debugging tool, won't work correctly with SMP or when mirrors are present
 =====================
 */
 void idRenderWorldLocal::ShowPortals() {
-	int			i, j;
-	portalArea_t	*area;
-	portal_t	*p;
-	idWinding	*w;
-
-	// flood out through portals, setting area viewCount
-	for ( i = 0 ; i < numPortalAreas ; i++ ) {
-		area = &portalAreas[i];
-		if ( area->viewCount != tr.viewCount ) {
-			continue;
-		}
-		for ( p = area->portals ; p ; p = p->next ) {
-			w = p->w;
-			if ( !w ) {
-				continue;
-			}
-
-			if ( portalAreas[ p->intoArea ].viewCount != tr.viewCount ) {
-				// red = can't see
-				glColor3f( 1, 0, 0 );
-			} else {
-				// green = see through
-				glColor3f( 0, 1, 0 );
-			}
-
-			glBegin( GL_LINE_LOOP );
-			for ( j = 0 ; j < w->GetNumPoints() ; j++ ) {
-				glVertex3fv( (*w)[j].ToFloatPtr() );
-			}
-			glEnd();
-		}
-	}
 }

@@ -146,7 +146,7 @@ public:
 	// done under any normal circumstances, and probably not at all on consoles.
 	void		Resize(int width, int height);
 
-	bool		IsCompressed() const { return (opts.format == FMT_DXT1 || opts.format == FMT_DXT5); }
+	bool		IsCompressed() const { return (opts.format == FMT_DXT1 || opts.format == FMT_DXT3 || opts.format == FMT_DXT5); }
 
 	void		SetTexParameters();	// update aniso and trilinear
 
@@ -160,6 +160,7 @@ private:
 
 	void				AllocImage();
 	void				DeriveOpts();
+	bool				LoadPrecompressed();		// retail dds/ files
 
 	// parameters that define this image
 	idStr				imgName;				// game path, including extension (except for cube maps), may be an image program
@@ -182,21 +183,17 @@ private:
 
 	static const GLuint TEXTURE_NOT_LOADED = 0xFFFFFFFF;
 
-	GLuint				texnum;				// gl texture binding
-
-	// we could derive these in subImageUpload each time if necessary
-	GLuint				internalFormat;
-	GLuint				dataFormat;
-	GLuint				dataType;
+	GLuint				texnum;				// image descriptor index
+	int					samplerIndex;
+	struct dkImageData_t *dkData;			// src/renderer/deko3d/dk_image.cpp
 
 
 };
 
 ID_INLINE idImage::idImage(const char* name) : imgName(name) {
 	texnum = TEXTURE_NOT_LOADED;
-	internalFormat = 0;
-	dataFormat = 0;
-	dataType = 0;
+	samplerIndex = 0;
+	dkData = NULL;
 	generatorFunction = NULL;
 	filter = TF_DEFAULT;
 	repeat = TR_REPEAT;

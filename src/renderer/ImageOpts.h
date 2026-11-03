@@ -72,6 +72,7 @@ enum textureFormat_t {
 	//------------------------
 
 	FMT_DXT1,			// 4 bpp
+	FMT_DXT3,			// 8 bpp
 	FMT_DXT5,			// 8 bpp
 
 	//------------------------

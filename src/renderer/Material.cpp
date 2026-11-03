@@ -183,21 +183,6 @@ void idMaterial::FreeData() {
 				stages[i].texture.cinematic = NULL;
 			}
 			if ( stages[i].newStage != NULL ) {
-				if ( stages[i].newStage->glslProgramObject != 0 ) {
-					if ( stages[i].newStage->glslVertexShaderObject != 0 ) {
-						glDetachObjectARB(
-							(GLhandleARB)stages[i].newStage->glslProgramObject,
-							(GLhandleARB)stages[i].newStage->glslVertexShaderObject );
-						glDeleteObjectARB( (GLhandleARB)stages[i].newStage->glslVertexShaderObject );
-					}
-					if ( stages[i].newStage->glslFragmentShaderObject != 0 ) {
-						glDetachObjectARB(
-							(GLhandleARB)stages[i].newStage->glslProgramObject,
-							(GLhandleARB)stages[i].newStage->glslFragmentShaderObject );
-						glDeleteObjectARB( (GLhandleARB)stages[i].newStage->glslFragmentShaderObject );
-					}
-					glDeleteObjectARB( (GLhandleARB)stages[i].newStage->glslProgramObject );
-				}
 				Mem_Free( stages[i].newStage );
 				stages[i].newStage = NULL;
 			}

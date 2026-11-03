@@ -366,6 +366,14 @@ const char *idKeyInput::KeyNumToString( int keynum, bool localized ) {
 		return tinystr;
 	}
 
+#ifdef __SWITCH__
+	// the controller's own names, in the order of src/sys/switch/switch_input.cpp
+	if ( localized && keynum >= K_JOY1 && keynum <= K_JOY16 ) {
+		static const char *buttonLabels[] = { "A", "B", "X", "Y", "L", "R", "ZL", "ZR", "+", "-", "L Stick", "R Stick", "D-Pad Up", "D-Pad Down", "D-Pad Left", "D-Pad Right" };
+		return buttonLabels[keynum - K_JOY1];
+	}
+#endif
+
 	// check for a key string
 	for ( kn = keynames; kn->name; kn++ ) {
 		if ( keynum == kn->keynum ) {

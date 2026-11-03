@@ -46,6 +46,7 @@ int BitsForFormat( textureFormat_t format ) {
 		case FMT_LUM8:		return 8;
 		case FMT_INT8:		return 8;
 		case FMT_DXT1:		return 4;
+		case FMT_DXT3:		return 8;
 		case FMT_DXT5:		return 8;
 		case FMT_DEPTH:		return 32;
 		case FMT_DEPTH_STENCIL:	return 32;
@@ -332,6 +333,11 @@ void idImage::ActuallyLoadImage( bool fromBackEnd ) {
 		return;
 	}
 
+	// the game ships most images compressed, ready to use
+	if ( LoadPrecompressed() ) {
+		return;
+	}
+
 	if ( com_productionMode.GetInteger() != 0 ) {
 		sourceFileTime = FILE_NOT_FOUND_TIMESTAMP;
 		if ( cubeFiles != CF_2D ) {
@@ -576,60 +582,7 @@ void idImage::ActuallyLoadImage( bool fromBackEnd ) {
 	}
 }
 
-/*
-==============
-Bind
 
-Automatically enables 2D mapping or cube mapping if needed
-==============
-*/
-void idImage::Bind() {
-
-	//	RENDERLOG_PRINTF( "idImage::Bind( %s )\n", GetName() );
-
-		// load the image if necessary (FIXME: not SMP safe!)
-	if (!IsLoaded()) {
-		// load the image on demand here, which isn't our normal game operating mode
-		ActuallyLoadImage(true);
-	}
-
-	const int texUnit = backEnd.glState.currenttmu;
-
-	tmu_t* tmu = &backEnd.glState.tmu[texUnit];
-
-	// enable or disable apropriate texture modes
-	if (tmu->textureType != opts.textureType && (backEnd.glState.currenttmu < glConfig.maxTextureUnits)) {
-		if (tmu->textureType == TT_CUBIC) {
-			glDisable(GL_TEXTURE_CUBE_MAP_EXT);
-		}
-		else if (tmu->textureType == TT_2D) {
-			glDisable(GL_TEXTURE_2D);
-		}
-
-		if (opts.textureType == TT_CUBIC) {
-			glEnable(GL_TEXTURE_CUBE_MAP_EXT);
-		}
-		else if (opts.textureType == TT_2D) {
-			glEnable(GL_TEXTURE_2D);
-		}
-		tmu->textureType = opts.textureType;
-	}
-
-	// bind the texture
-	if (opts.textureType == TT_2D) {
-		if (tmu->current2DMap != texnum) {
-			tmu->current2DMap = texnum;
-			glBindMultiTextureEXT(GL_TEXTURE0_ARB + texUnit, GL_TEXTURE_2D, texnum);
-		}
-	}
-	else if (opts.textureType == TT_CUBIC) {
-		if (tmu->currentCubeMap != texnum) {
-			tmu->currentCubeMap = texnum;
-			glBindMultiTextureEXT(GL_TEXTURE0_ARB + texUnit, GL_TEXTURE_CUBE_MAP_EXT, texnum);
-		}
-	}
-
-}
 
 /*
 ================
@@ -643,159 +596,9 @@ int MakePowerOfTwo( int num ) {
 	return pot;
 }
 
-/*
-====================
-CopyFramebuffer
-====================
-*/
-void idImage::CopyFramebuffer( int x, int y, int imageWidth, int imageHeight ) {
-	glBindTexture( ( opts.textureType == TT_CUBIC ) ? GL_TEXTURE_CUBE_MAP_EXT : GL_TEXTURE_2D, texnum );
 
-	if ( cvarSystem->GetCVarBool( "g_lowresFullscreenFX" ) ) {
-		imageWidth = 512;
-		imageHeight = 512;
-	}
 
-	const bool readingFromRenderTexture = ( backEnd.renderTexture != NULL ) && ( backEnd.renderTexture->GetNumColorImages() > 0 );
-	const GLenum readAttachment = GL_COLOR_ATTACHMENT0;
 
-	opts.width = imageWidth;
-	opts.height = imageHeight;
-
-	if ( readingFromRenderTexture && ( GLEW_EXT_framebuffer_blit || GLEW_VERSION_3_0 ) ) {
-		GLint previousReadFbo = 0;
-		GLint previousDrawFbo = 0;
-		GLint previousReadBuffer = GL_BACK;
-		GLint previousDrawBuffer = GL_BACK;
-
-		glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &previousReadFbo );
-		glGetIntegerv( GL_DRAW_FRAMEBUFFER_BINDING, &previousDrawFbo );
-		glGetIntegerv( GL_READ_BUFFER, &previousReadBuffer );
-		glGetIntegerv( GL_DRAW_BUFFER, &previousDrawBuffer );
-
-		static GLuint copyFbo = 0;
-		if ( copyFbo == 0 ) {
-			glGenFramebuffers( 1, &copyFbo );
-		}
-
-		glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA8, imageWidth, imageHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL );
-		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-
-		glBindFramebuffer( GL_READ_FRAMEBUFFER, backEnd.renderTexture->GetDeviceHandle() );
-		glReadBuffer( readAttachment );
-
-		glBindFramebuffer( GL_DRAW_FRAMEBUFFER, copyFbo );
-		glFramebufferTexture2D( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texnum, 0 );
-		glDrawBuffer( GL_COLOR_ATTACHMENT0 );
-
-		// glBlitFramebuffer obeys scissor state; ensure the copy is not clipped by a prior light scissor.
-		const GLboolean scissorWasEnabled = glIsEnabled( GL_SCISSOR_TEST );
-		GLint previousScissorBox[4] = { 0, 0, 0, 0 };
-		if ( scissorWasEnabled ) {
-			glGetIntegerv( GL_SCISSOR_BOX, previousScissorBox );
-			glDisable( GL_SCISSOR_TEST );
-		}
-
-		glBlitFramebuffer( x, y, x + imageWidth, y + imageHeight, 0, 0, imageWidth, imageHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST );
-		if ( scissorWasEnabled ) {
-			glScissor( previousScissorBox[0], previousScissorBox[1], previousScissorBox[2], previousScissorBox[3] );
-			glEnable( GL_SCISSOR_TEST );
-		}
-
-		glFramebufferTexture2D( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0 );
-
-		glBindFramebuffer( GL_READ_FRAMEBUFFER, previousReadFbo );
-		glBindFramebuffer( GL_DRAW_FRAMEBUFFER, previousDrawFbo );
-		glReadBuffer( previousReadBuffer );
-		glDrawBuffer( previousDrawBuffer );
-	} else {
-		glReadBuffer( readingFromRenderTexture ? readAttachment : GL_BACK );
-		glCopyTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA8, x, y, imageWidth, imageHeight, 0 );
-
-		// these shouldn't be necessary if the image was initialized properly
-		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-	}
-
-//	backEnd.pc.c_copyFrameBuffer++;
-}
-
-/*
-====================
-CopyDepthbuffer
-====================
-*/
-void idImage::CopyDepthbuffer( int x, int y, int imageWidth, int imageHeight ) {
-	glBindTexture( ( opts.textureType == TT_CUBIC ) ? GL_TEXTURE_CUBE_MAP_EXT : GL_TEXTURE_2D, texnum );
-
-	if ( cvarSystem->GetCVarBool( "g_lowresFullscreenFX" ) ) {
-		imageWidth = 512;
-		imageHeight = 512;
-	}
-
-	opts.width = imageWidth;
-	opts.height = imageHeight;
-
-	const bool readingFromRenderTexture = ( backEnd.renderTexture != NULL ) && ( backEnd.renderTexture->GetDepthImage() != NULL );
-	if ( readingFromRenderTexture && ( GLEW_EXT_framebuffer_blit || GLEW_VERSION_3_0 ) ) {
-		GLint previousReadFbo = 0;
-		GLint previousDrawFbo = 0;
-		GLint previousReadBuffer = GL_BACK;
-		GLint previousDrawBuffer = GL_BACK;
-
-		glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &previousReadFbo );
-		glGetIntegerv( GL_DRAW_FRAMEBUFFER_BINDING, &previousDrawFbo );
-		glGetIntegerv( GL_READ_BUFFER, &previousReadBuffer );
-		glGetIntegerv( GL_DRAW_BUFFER, &previousDrawBuffer );
-
-		static GLuint copyDepthFbo = 0;
-		if ( copyDepthFbo == 0 ) {
-			glGenFramebuffers( 1, &copyDepthFbo );
-		}
-
-		glTexImage2D( GL_TEXTURE_2D, 0, internalFormat, imageWidth, imageHeight, 0, dataFormat, dataType, NULL );
-		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
-		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
-		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-
-		glBindFramebuffer( GL_READ_FRAMEBUFFER, backEnd.renderTexture->GetDeviceHandle() );
-		glBindFramebuffer( GL_DRAW_FRAMEBUFFER, copyDepthFbo );
-		glFramebufferTexture2D( GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texnum, 0 );
-		glReadBuffer( GL_NONE );
-		glDrawBuffer( GL_NONE );
-
-		const GLboolean scissorWasEnabled = glIsEnabled( GL_SCISSOR_TEST );
-		GLint previousScissorBox[4] = { 0, 0, 0, 0 };
-		if ( scissorWasEnabled ) {
-			glGetIntegerv( GL_SCISSOR_BOX, previousScissorBox );
-			glDisable( GL_SCISSOR_TEST );
-		}
-
-		glBlitFramebuffer( x, y, x + imageWidth, y + imageHeight, 0, 0, imageWidth, imageHeight, GL_DEPTH_BUFFER_BIT, GL_NEAREST );
-
-		if ( scissorWasEnabled ) {
-			glScissor( previousScissorBox[0], previousScissorBox[1], previousScissorBox[2], previousScissorBox[3] );
-			glEnable( GL_SCISSOR_TEST );
-		}
-
-		glFramebufferTexture2D( GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0 );
-
-		glBindFramebuffer( GL_READ_FRAMEBUFFER, previousReadFbo );
-		glBindFramebuffer( GL_DRAW_FRAMEBUFFER, previousDrawFbo );
-		glReadBuffer( previousReadBuffer );
-		glDrawBuffer( previousDrawBuffer );
-	} else {
-		glCopyTexImage2D( GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, x, y, imageWidth, imageHeight, 0 );
-	}
-
-	//backEnd.pc.c_copyFrameBuffer++;
-}
 
 /*
 =============
@@ -993,17 +796,4 @@ void idImage::Reload( bool force ) {
 	ActuallyLoadImage( false );
 }
 
-/*
-========================
-idImage::SetSamplerState
-========================
-*/
-void idImage::SetSamplerState( textureFilter_t tf, textureRepeat_t tr ) {
-	if ( tf == filter && tr == repeat ) {
-		return;
-	}
-	filter = tf;
-	repeat = tr;
-	glBindTexture( ( opts.textureType == TT_CUBIC ) ? GL_TEXTURE_CUBE_MAP_EXT : GL_TEXTURE_2D, texnum );
-	SetTexParameters();
-}
+

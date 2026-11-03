@@ -706,40 +706,9 @@ void R_CombineCubeImages_f( const idCmdArgs &args ) {
 	common->SetRefreshOnPrint( false );
 }
 
-/*
-===============
-UnbindAll
-===============
-*/
-void idImageManager::UnbindAll() {
-	int oldTMU = backEnd.glState.currenttmu;
-	for ( int i = 1; i < MAX_MULTITEXTURE_UNITS; ++i ) {
-		GL_SelectTextureNoClient(i);
-		BindNull();
-	}
-	backEnd.glState.currenttmu = oldTMU;
-}
 
-/*
-===============
-BindNull
-===============
-*/
-void idImageManager::BindNull() {
-	tmu_t* tmu;
 
-	tmu = &backEnd.glState.tmu[backEnd.glState.currenttmu];
 
-	RB_LogComment("BindNull()\n");
-	if (tmu->textureType == TT_CUBIC) {
-		glDisable(GL_TEXTURE_CUBE_MAP_EXT);
-	}
-	else if (tmu->textureType == TT_2D) {
-		glDisable(GL_TEXTURE_2D);
-	}
-	tmu->textureType = TT_DISABLED;
-
-}
 
 /*
 ===============

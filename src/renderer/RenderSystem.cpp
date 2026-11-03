@@ -742,7 +742,6 @@ void idRenderSystemLocal::EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	R_CheckCvars();
 
     // check for errors
-	GL_CheckErrors();
 
 	// add the swapbuffers command
 	cmd = (emptyCommand_t *)R_GetCommandBuffer( sizeof( *cmd ) );
@@ -976,40 +975,11 @@ void idRenderSystemLocal::CaptureRenderToImage( const char *imageName ) {
 ==============
 CaptureRenderToFile
 
+Not available: nothing in the game depends on it.
 ==============
 */
 void idRenderSystemLocal::CaptureRenderToFile( const char *fileName, bool fixAlpha ) {
-	if ( !glConfig.isInitialized ) {
-		return;
-	}
-
-	renderCrop_t *rc = &renderCrops[currentRenderCrop];
-
-	guiModel->EmitFullScreen();
 	guiModel->Clear();
-	R_IssueRenderCommands();
-
-	glReadBuffer( GL_BACK );
-
-	// include extra space for OpenGL padding to word boundaries
-	int	c = ( rc->width + 3 ) * rc->height;
-	byte *data = (byte *)R_StaticAlloc( c * 3 );
-	
-	glReadPixels( rc->x, rc->y, rc->width, rc->height, GL_RGB, GL_UNSIGNED_BYTE, data ); 
-
-	byte *data2 = (byte *)R_StaticAlloc( c * 4 );
-
-	for ( int i = 0 ; i < c ; i++ ) {
-		data2[ i * 4 ] = data[ i * 3 ];
-		data2[ i * 4 + 1 ] = data[ i * 3 + 1 ];
-		data2[ i * 4 + 2 ] = data[ i * 3 + 2 ];
-		data2[ i * 4 + 3 ] = 0xff;
-	}
-
-	R_WriteTGA( fileName, data2, rc->width, rc->height, true );
-
-	R_StaticFree( data );
-	R_StaticFree( data2 );
 }
 
 

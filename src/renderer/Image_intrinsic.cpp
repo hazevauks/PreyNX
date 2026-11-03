@@ -595,15 +595,6 @@ static void R_BorderClampImage(idImage* image) {
 
 	image->GenerateImage((byte*)data, BORDER_CLAMP_SIZE, BORDER_CLAMP_SIZE,
 		TF_LINEAR /* TF_NEAREST */, TR_CLAMP_TO_BORDER, TD_DEFAULT);
-
-	if (!glConfig.isInitialized) {
-		// can't call qglTexParameterfv yet
-		return;
-	}
-	// explicit zero border
-	float	color[4];
-	color[0] = color[1] = color[2] = color[3] = 0;
-	glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color);
 }
 
 /*

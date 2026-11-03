@@ -28,7 +28,17 @@ If you have questions concerning this license or the applicable additional terms
 
 // vertex cache calls should only be made by the front end
 
+#include <deko3d.h>
+
 const int NUM_VERTEX_FRAMES = 2;
+
+// a piece of a large GPU memory block
+typedef struct {
+	DkMemBlock	block;
+	uint32_t	offset;
+	uint32_t	size;
+	uint32_t	blockIndex;
+} dkAlloc_t;
 
 typedef enum {
 	TAG_FREE,
@@ -38,8 +48,8 @@ typedef enum {
 } vertBlockTag_t;
 
 typedef struct vertCache_s {
-	GLuint			vbo;
-	void			*virtMem;			// only one of vbo / virtMem will be set
+	DkGpuAddr		gpuAddr;
+	dkAlloc_t		alloc;
 	bool			indexBuffer;		// holds indexes instead of vertexes
 
 	int				offset;
