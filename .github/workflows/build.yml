@@ -1,0 +1,50 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Repository check
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 tools/check_repo.py
+
+      - name: Build tools
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq cmake ninja-build python3
+
+      - name: Libraries
+        run: |
+          dkp-pacman -Syu --noconfirm --needed deko3d uam switch-openal-soft switch-sdl2 switch-zlib
+
+      - name: Build
+        run: ./build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prey-nro
+          path: |
+            build/prey.nro
+            build/prey.elf
+          retention-days: 14
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/prey.nro
+          draft: true

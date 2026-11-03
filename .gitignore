@@ -1,6 +1,7 @@
 # Game data: your own copy of Prey stays on your machine. Never commit it.
 /Jogo Extra*/
 /game_data/
+/shaders-generated/
 *.pk4
 *.iso
 *.cab
