@@ -24,8 +24,9 @@ logging and crash reports.
 #include "../sys_local.h"
 #include "switch_local.h"
 
-// the renderer back end submits work to the GPU from here
+// what is still running when the engine thread ends
 void GLimp_ReleaseForExit( void );
+void FS_StopBackgroundDownloadThread( void );
 
 // recursive game code expects the large stack it has on Windows
 static const size_t ENGINE_STACK_SIZE = 16 * 1024 * 1024;
@@ -676,6 +677,7 @@ int main( int argc, char **argv ) {
 	pthread_join( engineThread, NULL );
 
 	Switch_StopAsyncThread();
+	FS_StopBackgroundDownloadThread();
 	GLimp_ReleaseForExit();
 	Switch_RestoreClocks();
 	Switch_FlushLog();

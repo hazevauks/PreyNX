@@ -24,7 +24,7 @@ static const float *	s_projection;		// current projection, the view's or a depth
 static float			s_hackProjection[16];
 static float			s_minDepth = 0.0f;
 static float			s_maxDepth = 1.0f;
-static bool				s_viewportValid = false;
+static bool				s_depthOnlyFill = false;	// the color was cleared to black, so the depth pass writes no color
 
 static const float IDENTITY_MATRIX[16] = {
 	1, 0, 0, 0,
@@ -151,7 +151,6 @@ void RB_DrawShadowElementsWithCounters( const srfTriangles_t *tri, int numIndexe
 
 static ID_INLINE void Dk_BindDrawVerts( const srfTriangles_t *tri ) {
 	Dk_SetVertexFormat( VFMT_DRAWVERT );
-	Dk_FlushForDraw();
 	Dk_BindVertexBuffer( 0, Dk_CacheAddr( tri->ambientCache ), tri->ambientCache->size );
 }
 
@@ -376,7 +375,8 @@ static void RB_T_FillDepthBuffer( const drawSurf_t *surf ) {
 
 	// subviews will just down-modulate the color buffer by overbright
 	float color[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-	if ( shader->GetSort() == SS_SUBVIEW ) {
+	const bool isSubview = shader->GetSort() == SS_SUBVIEW;
+	if ( isSubview ) {
 		GL_State( GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO | GLS_DEPTHFUNC_LESS );
 		color[0] = color[1] = color[2] = 1.0f / backEnd.overBright;
 	}
@@ -432,12 +432,11 @@ static void RB_T_FillDepthBuffer( const drawSurf_t *surf ) {
 
 	if ( drawSolid ) {
 		const bool clipped = backEnd.viewDef->numClipPlanes != 0;
-		if ( color[0] != 0.0f ) {
-			Dk_SetFsLocal( 0, color );
-			Dk_SetVsLocal( FFV_COLOR, color );
-			Dk_UseFixedProgram( DKP_COLOR );
-		} else {
+		if ( s_depthOnlyFill && !isSubview ) {
 			Dk_UseFixedProgram( clipped ? DKP_DEPTH_CLIP : DKP_DEPTH );
+		} else {
+			Dk_SetFsLocal( 0, color );
+			Dk_UseFixedProgram( clipped ? DKP_COLOR_CLIP : DKP_COLOR );
 		}
 		RB_DrawElementsWithCounters( tri );
 	}
@@ -445,8 +444,8 @@ static void RB_T_FillDepthBuffer( const drawSurf_t *surf ) {
 	if ( shader->TestMaterialFlag( MF_POLYGONOFFSET ) ) {
 		Dk_SetPolygonOffset( false, 0, 0 );
 	}
-	if ( shader->GetSort() == SS_SUBVIEW ) {
-		GL_State( GLS_DEPTHFUNC_LESS );
+	if ( isSubview ) {
+		GL_State( s_depthOnlyFill ? ( GLS_DEPTHFUNC_LESS | GLS_COLORMASK | GLS_ALPHAMASK ) : GLS_DEPTHFUNC_LESS );
 	}
 }
 
@@ -457,7 +456,18 @@ void RB_STD_FillDepthBuffer( drawSurf_t **drawSurfs, int numDrawSurfs ) {
 	}
 
 	GL_SelectTexture( 0 );
-	GL_State( GLS_DEPTHFUNC_LESS );
+
+	// Subviews already drew to the screen, where the surfaces that show them are.
+	// With none in sight the screen can be cleared, and this pass needs no color at all.
+	s_depthOnlyFill = numDrawSurfs == 0 || drawSurfs[0]->material->GetSort() != SS_SUBVIEW;
+	if ( s_depthOnlyFill ) {
+		static const float black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+		GL_State( GLS_DEPTHFUNC_LESS | GLS_COLORMASK | GLS_ALPHAMASK );
+		Dk_FlushForDraw();
+		Dk_Clear( true, black, false, false, 0 );
+	} else {
+		GL_State( GLS_DEPTHFUNC_LESS );
+	}
 
 	if ( !backEnd.viewDef->numClipPlanes ) {
 		const float noClip[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
@@ -863,8 +873,10 @@ static void RB_CreateDrawInteractions( const drawSurf_t *surf ) {
 
 	backEnd.currentSpace = NULL;
 	for ( ; surf; surf = surf->nextOnLight ) {
-		Dk_BindDrawVerts( surf->geo );
-		RB_CreateSingleDrawInteractions( surf );
+		if ( surf->geo && surf->geo->ambientCache ) {
+			Dk_BindDrawVerts( surf->geo );
+			RB_CreateSingleDrawInteractions( surf );
+		}
 	}
 
 	GL_SelectTexture( 0 );
@@ -953,7 +965,6 @@ static void RB_T_Shadow( const drawSurf_t *surf ) {
 	}
 
 	Dk_SetShadowStencilOps( external );
-	Dk_FlushForDraw();
 	Dk_BindVertexBuffer( 0, Dk_CacheAddr( tri->shadowCache ), tri->shadowCache->size );
 	RB_DrawShadowElementsWithCounters( tri, numIndexes );
 }
@@ -1137,7 +1148,6 @@ stage's constant color was a texture unit on the old fixed function path.
 static void Dk_BindStageVerts( const drawSurf_t *surf, int stage, dkVertexFormat_t format ) {
 	const srfTriangles_t *tri = surf->geo;
 	Dk_SetVertexFormat( format );
-	Dk_FlushForDraw();
 	Dk_BindVertexBuffer( 0, Dk_CacheAddr( tri->ambientCache ), tri->ambientCache->size );
 	if ( format == VFMT_DRAWVERT_COLOR ) {
 		const DkGpuAddr colors = Dk_CacheAddr( surf->decalColorCache ) + stage * surf->decalColorStride;
@@ -1644,7 +1654,6 @@ static void RB_STD_LightScale( void ) {
 
 	if ( quad ) {
 		Dk_SetVertexFormat( VFMT_DRAWVERT );
-		Dk_FlushForDraw();
 		Dk_BindVertexBuffer( 0, quad->gpuAddr, quad->size );
 
 		float v = 1;
@@ -1754,7 +1763,7 @@ void RB_SetDefaultGLState( void ) {
 	backEnd.glState.faceCulling = -1;
 	backEnd.glState.currenttmu = 0;
 	GL_State( 0 );
-	GL_Cull( CT_FRONT_SIDED );
+	GL_Cull( CT_TWO_SIDED );
 	Dk_SetDepthTest( true );
 	Dk_SetStencilTest( true );
 	Dk_SetStencilFunc( DkCompareOp_Always, 0, 255 );
@@ -1809,11 +1818,15 @@ void RB_ExecuteBackEndCommands( const emptyCommand_t *cmds ) {
 
 	const int startTime = Sys_Milliseconds();
 
-	Dk_BeginFrame();
-	RB_SetDefaultGLState();
 	backEnd.renderTexture = NULL;
 
 	for ( ; cmds; cmds = (const emptyCommand_t *)cmds->next ) {
+		// the next screen image is acquired only when there is something to draw on it
+		if ( dkr.imageSlot < 0 && cmds->commandId != RC_NOP ) {
+			Dk_BeginFrame();
+			RB_SetDefaultGLState();
+		}
+
 		switch ( cmds->commandId ) {
 			case RC_NOP:
 				break;
@@ -1825,8 +1838,6 @@ void RB_ExecuteBackEndCommands( const emptyCommand_t *cmds ) {
 				break;
 			case RC_SWAP_BUFFERS:
 				GLimp_SwapBuffers();
-				Dk_BeginFrame();
-				RB_SetDefaultGLState();
 				break;
 			case RC_COPY_RENDER: {
 				const copyRenderCommand_t *copy = (const copyRenderCommand_t *)cmds;

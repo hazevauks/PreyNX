@@ -38,6 +38,7 @@ static const dkFixedProgramDef_t s_fixedDefs[DKP_COUNT] = {
 	{ "stage_tex3_cube", "stage_cube" },
 	{ "stage_screen", "stage_screen" },
 	{ "color", "color" },
+	{ "depth_clip", "color" },
 	{ "shadow", NULL },
 	{ "interaction", "interaction" },
 	{ "environment", "environment" },

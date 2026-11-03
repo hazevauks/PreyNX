@@ -43,6 +43,7 @@ static uint32_t		s_stagingHead = 0;
 static DkFence		s_stagingFence;
 static bool			s_stagingFenceUsed = false;
 static bool			s_uploadsPending = false;
+static int			s_uploadCommands = 0;
 
 static int			s_freeDescriptors[MAX_IMAGE_DESCRIPTORS];
 static int			s_numFreeDescriptors = 0;
@@ -292,7 +293,7 @@ Uploads
 ============================================================================
 */
 void Dk_SubmitUploads( void ) {
-	if ( !s_uploadsPending ) {
+	if ( !s_uploadsPending && !s_descriptorsDirty ) {
 		return;
 	}
 	// new images need their descriptors read again, and the cache of what was overwritten dropped
@@ -306,6 +307,7 @@ void Dk_SubmitUploads( void ) {
 }
 
 static void Dk_ResetUploadCommands( void ) {
+	s_uploadCommands = 0;
 	dkCmdBufClear( dkr.uploadCmd );
 	dkCmdBufAddMemory( dkr.uploadCmd, s_uploadCmdBlock, 0, UPLOAD_CMD_MEMORY );
 }
@@ -314,8 +316,11 @@ void *Dk_UploadSpace( uint32_t size, uint32_t align, DkGpuAddr &gpuAddr ) {
 	if ( size > UPLOAD_STAGING_SIZE ) {
 		common->FatalError( "deko3D: transfer of %u bytes is too large", size );
 	}
+	// a copy takes a bit over 100 bytes of command memory: a map's textures, mip by mip, would outgrow it
+	const int MAX_UPLOAD_COMMANDS = ( UPLOAD_CMD_MEMORY / 2 ) / 128;
+
 	uint32_t start = ( s_stagingHead + align - 1 ) & ~( align - 1 );
-	if ( start + size > UPLOAD_STAGING_SIZE ) {
+	if ( start + size > UPLOAD_STAGING_SIZE || ++s_uploadCommands > MAX_UPLOAD_COMMANDS ) {
 		// everything queued must finish before the staging memory is used again
 		Dk_SubmitUploads();
 		if ( s_stagingFenceUsed ) {
@@ -330,6 +335,9 @@ void *Dk_UploadSpace( uint32_t size, uint32_t align, DkGpuAddr &gpuAddr ) {
 	}
 	s_stagingHead = start + size;
 	s_uploadsPending = true;
+	if ( s_uploadCommands == 0 ) {
+		s_uploadCommands = 1;
+	}
 	gpuAddr = dkMemBlockGetGpuAddr( s_stagingBlock ) + start;
 	return (byte *)dkMemBlockGetCpuAddr( s_stagingBlock ) + start;
 }

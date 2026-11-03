@@ -610,11 +610,12 @@ void GL_Cull( int cullType ) {
 		return;
 	}
 
+	const bool mirror = backEnd.viewDef && backEnd.viewDef->isMirror;
 	DkFace mode = DkFace_None;
 	if ( cullType == CT_BACK_SIDED ) {
-		mode = backEnd.viewDef->isMirror ? DkFace_Front : DkFace_Back;
+		mode = mirror ? DkFace_Front : DkFace_Back;
 	} else if ( cullType == CT_FRONT_SIDED ) {
-		mode = backEnd.viewDef->isMirror ? DkFace_Back : DkFace_Front;
+		mode = mirror ? DkFace_Back : DkFace_Front;
 	}
 	if ( s_rasterizer.cullMode != mode ) {
 		s_rasterizer.cullMode = mode;
