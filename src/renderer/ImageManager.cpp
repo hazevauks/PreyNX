@@ -852,6 +852,16 @@ void idImageManager::EndLevelLoad() {
 	common->Printf( "%5i images loaded in %5.1f seconds\n", loadCount, (end-start) * 0.001 );
 	common->Printf( "----------------------------------------\n" );
 	//R_ListImages_f( idCmdArgs( "sorted sorted", false ) );
+
+	int residentCount = 0;
+	int64_t residentBytes = 0;
+	for ( int j = 0; j < images.Num(); j++ ) {
+		if ( images[j]->IsLoaded() ) {
+			residentCount++;
+			residentBytes += images[j]->StorageSize();
+		}
+	}
+	common->Printf( "%5i images resident, %d MB\n", residentCount, (int)( residentBytes >> 20 ) );
 }
 
 /*

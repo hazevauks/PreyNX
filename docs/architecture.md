@@ -37,9 +37,10 @@ touched OpenGL is gone or replaced:
 
 ### Conventions
 
-The device runs with OpenGL's: lower left origin, depth -1 to 1. Matrices, winding and the game's
-programs work unchanged. A texture's first row is its bottom, and the screen's first row is its top, so
-screen copies flip (`idImage::CopyFramebuffer`), and programs read `_currentRender` as on OpenGL.
+Clip space has y up and depth -1 to 1, as on OpenGL, so matrices and winding work unchanged. The screen's
+first row is its top, which differs from OpenGL in three places, all of them converted: viewports and
+scissors (`Dk_SetViewport`, `Dk_SetScissor`), a fragment's position (`arb2glsl.py`), and screen copies, which
+flip so programs read `_currentRender` as on OpenGL (`idImage::CopyFramebuffer`).
 
 ### Uniforms
 
@@ -79,6 +80,18 @@ uncompressed.
 
 Each shadow volume is one draw with two-sided stencil, where OpenGL's single-sided path needs two to
 four. The engine's front faces are the GPU's back faces, which `Dk_SetShadowStencilOps` accounts for.
+
+### What deko3D 0.5.0 needs
+
+Learned by the ports that run deko3D on hardware, and followed here:
+
+- Its release library ends the process silently on an error. Test builds link the debug library
+  (`PREY_DEKO3D_DEBUG`), whose callback writes the error to the log.
+- Images need `Dk_FixTileSize`, or BC textures 24 to 32 pixels tall corrupt themselves.
+- A command can write past what it reserved, so each piece of command memory keeps a gap.
+- Clears respect the scissor. Coarse depth culling (ZCULL) stays off until tested on the console: `r_dkZcull 1`.
+- Depth-only draws bind an empty fragment program instead of none.
+- `uam` from devkitPro lacks the fixes those ports made to it. Flickering blocks of pixels would point there.
 
 ## Threads and cores
 

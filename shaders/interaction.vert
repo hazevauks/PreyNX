@@ -33,14 +33,16 @@ layout(std140, binding = 2) uniform VsLocal {
 
 #define TRANSFORM( p ) vec4( dot( p, mvp[0] ), dot( p, mvp[1] ), dot( p, mvp[2] ), dot( p, mvp[3] ) )
 
-layout(location = 0) out vec3 vToLight;
-layout(location = 1) out vec2 vBumpCoord;
-layout(location = 2) out float vFalloffS;
-layout(location = 3) out vec3 vLightCoord;
-layout(location = 4) out vec2 vDiffuseCoord;
-layout(location = 5) out vec2 vSpecularCoord;
-layout(location = 6) out vec3 vHalfAngle;
-layout(location = 7) out vec4 vColor;
+// the same outputs as the game's own interaction program, so its fragment programs
+// (skin, hair and the like) can run on this: texcoord 0-6 as locations 0-6, color as 8
+layout(location = 0) out vec4 vToLight;
+layout(location = 1) out vec4 vBumpCoord;
+layout(location = 2) out vec4 vFalloffCoord;
+layout(location = 3) out vec4 vLightCoord;
+layout(location = 4) out vec4 vDiffuseCoord;
+layout(location = 5) out vec4 vSpecularCoord;
+layout(location = 6) out vec4 vHalfAngle;
+layout(location = 8) out vec4 vColor;
 
 void main() {
 	const vec4 p = vec4( inPosition, 1.0 );
@@ -53,15 +55,15 @@ void main() {
 	gl_Position = TRANSFORM( p );
 
 	const vec3 lightVector = env[4].xyz - inPosition;
-	vToLight = toTangent * lightVector;
+	vToLight = vec4( toTangent * lightVector, 1.0 );
 
-	vBumpCoord = vec2( dot( t, env[10] ), dot( t, env[11] ) );
-	vFalloffS = dot( p, env[9] );
-	vLightCoord = vec3( dot( p, env[6] ), dot( p, env[7] ), dot( p, env[8] ) );
-	vDiffuseCoord = vec2( dot( t, env[12] ), dot( t, env[13] ) );
-	vSpecularCoord = vec2( dot( t, env[14] ), dot( t, env[15] ) );
+	vBumpCoord = vec4( dot( t, env[10] ), dot( t, env[11] ), 0.0, 1.0 );
+	vFalloffCoord = vec4( dot( p, env[9] ), 0.5, 0.0, 1.0 );
+	vLightCoord = vec4( dot( p, env[6] ), dot( p, env[7] ), 0.0, dot( p, env[8] ) );
+	vDiffuseCoord = vec4( dot( t, env[12] ), dot( t, env[13] ), 0.0, 1.0 );
+	vSpecularCoord = vec4( dot( t, env[14] ), dot( t, env[15] ), 0.0, 1.0 );
 
-	vHalfAngle = toTangent * ( normalize( lightVector ) + normalize( env[5].xyz - inPosition ) );
+	vHalfAngle = vec4( toTangent * ( normalize( lightVector ) + normalize( env[5].xyz - inPosition ) ), 1.0 );
 
 	vColor = inColor * env[16].x + env[16].y;
 }

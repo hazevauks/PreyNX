@@ -613,6 +613,16 @@ static void RB_DrawShaderInteraction( const drawInteraction_t *din, const shader
 
 	RB_DrawElementsWithCounters( din->surf->geo );
 
+	// the standard interaction's constant maps, which a stage's own may have replaced
+	GL_SelectTextureNoClient( 6 );
+	globalImages->specularTableImage->Bind();
+	GL_SelectTextureNoClient( 0 );
+	if ( din->ambientLight ) {
+		globalImages->ambientNormalMap->Bind();
+	} else {
+		globalImages->normalCubeMapImage->Bind();
+	}
+
 	Dk_UseFixedProgram( DKP_INTERACTION );
 	GL_State( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE | GLS_DEPTHMASK | backEnd.depthFunc );
 }
@@ -1076,6 +1086,13 @@ void RB_SetProgramEnvironment( void ) {
 	parm[3] = 1.0f;
 	Dk_SetFsEnv( 1, parm );
 
+	// for programs that read the fragment's position, measured from the bottom as they expect
+	parm[0] = (float)DK_SCREEN_HEIGHT;
+	parm[1] = (float)DK_SCREEN_WIDTH;
+	parm[2] = 0.0f;
+	parm[3] = 1.0f;
+	Dk_SetFsEnv( DK_FS_ENV_SCREEN_SIZE, parm );
+
 	// set eye position in global space
 	parm[0] = backEnd.viewDef->renderView.vieworg[0];
 	parm[1] = backEnd.viewDef->renderView.vieworg[1];
@@ -1161,10 +1178,24 @@ static void Dk_DrawNewStage( const drawSurf_t *surf, const shaderStage_t *pStage
 	const newShaderStage_t *newStage = pStage->newStage;
 	const float *regs = surf->shaderRegisters;
 
-	const DkShader *vertexShader = Dk_MaterialShader( newStage->vertexProgram );
 	const DkShader *fragmentShader = Dk_MaterialShader( newStage->fragmentProgram );
-	if ( !vertexShader || !fragmentShader ) {
+	if ( !fragmentShader ) {
 		return;
+	}
+	// without a vertex program of its own, a stage takes the fixed function vertex path
+	const DkShader *vertexShader = newStage->vertexProgram ? Dk_MaterialShader( newStage->vertexProgram ) : Dk_FixedVertexShader( DKP_STAGE );
+	if ( !vertexShader ) {
+		return;
+	}
+	if ( !newStage->vertexProgram ) {
+		static const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		static const float vertexWhite[4] = { 0.0f, 1.0f, 0.0f, 0.0f };
+		static const float texS[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
+		static const float texT[4] = { 0.0f, 1.0f, 0.0f, 0.0f };
+		Dk_SetVsLocal( FFV_COLOR, white );
+		Dk_SetVsLocal( FFV_COLOR_MODE, vertexWhite );
+		Dk_SetVsLocal( FFV_TEX_S, texS );
+		Dk_SetVsLocal( FFV_TEX_T, texT );
 	}
 
 	const bool bakedColors = surf->decalColorCache != NULL && stage < surf->decalColorStageCount && surf->decalColorStride > 0;

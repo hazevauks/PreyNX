@@ -11,12 +11,12 @@ layout(location = 0) out vec4 outColor;
 
 layout(location = 0) in vec3 vToLight;
 layout(location = 1) in vec2 vBumpCoord;
-layout(location = 2) in float vFalloffS;
-layout(location = 3) in vec3 vLightCoord;
+layout(location = 2) in vec2 vFalloffCoord;
+layout(location = 3) in vec4 vLightCoord;
 layout(location = 4) in vec2 vDiffuseCoord;
 layout(location = 5) in vec2 vSpecularCoord;
 layout(location = 6) in vec3 vHalfAngle;
-layout(location = 7) in vec4 vColor;
+layout(location = 8) in vec4 vColor;
 
 layout(binding = 0) uniform samplerCube lightCube;
 layout(binding = 1) uniform sampler2D bumpMap;
@@ -33,8 +33,8 @@ void main() {
 
 	const vec3 toLight = texture( lightCube, vToLight ).xyz * 2.0 - 1.0;
 	const vec3 lighting = vec3( dot( toLight, normal ) )
-		* textureProj( projectionMap, vLightCoord ).rgb
-		* texture( falloffMap, vec2( vFalloffS, 0.5 ) ).rgb;
+		* textureProj( projectionMap, vLightCoord.xyw ).rgb
+		* texture( falloffMap, vFalloffCoord ).rgb;
 
 	const float specularAngle = clamp( dot( normalize( vHalfAngle ), normal ), 0.0, 1.0 );
 	const vec3 specular = texture( specularTable, vec2( specularAngle ) ).rgb * fenv[1].rgb

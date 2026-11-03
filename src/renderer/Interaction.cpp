@@ -157,10 +157,12 @@ void R_FreeInteractionCullInfo( srfCullInfo_t &cullInfo ) {
 }
 
 #define	MAX_CLIPPED_POINTS	20
+namespace {
 typedef struct {
 	int		numVerts;
 	idVec3	verts[MAX_CLIPPED_POINTS];
 } clipTri_t;
+}
 
 /*
 =============

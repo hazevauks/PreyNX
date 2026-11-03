@@ -88,6 +88,32 @@ static void Dk_ImageSwizzle( const idImageOpts &opts, textureUsage_t usage, DkIm
 
 /*
 ========================
+Dk_FixTileSize
+
+deko3D 0.5.0 picks an image's tile height from 1.5 times its height, and its layout
+shrinks it for the first level, but the descriptor and the engines use the unshrunk
+one. Where they differ, for example BC textures 24 to 32 pixels tall, the second
+column of blocks lands on the next mip and its upload overwrites it. Asking for the
+shrunk tile makes them agree.
+
+Rows are the first level's height, in blocks.
+========================
+*/
+static void Dk_FixTileSize( DkImageLayoutMaker &maker, uint32_t rows ) {
+	const uint32_t gobs = ( rows + rows / 2 + 7 ) / 8;
+	const uint32_t tile = gobs >= 16 ? 4 : gobs >= 8 ? 3 : gobs >= 4 ? 2 : gobs >= 2 ? 1 : 0;
+	uint32_t shrunk = tile;
+	while ( shrunk && ( 8u << ( shrunk - 1 ) ) >= rows ) {
+		shrunk--;
+	}
+	if ( shrunk != tile ) {
+		maker.flags |= DkImageFlags_CustomTileSize;
+		maker.tileSize = (DkTileSize)shrunk;
+	}
+}
+
+/*
+========================
 idImage::AllocImage
 ========================
 */
@@ -108,13 +134,15 @@ void idImage::AllocImage() {
 	maker.format = dkData->format;
 	maker.dimensions[0] = opts.width;
 	maker.dimensions[1] = ( opts.textureType == TT_CUBIC ) ? opts.width : opts.height;
-	maker.dimensions[2] = ( opts.textureType == TT_CUBIC ) ? 6 : 1;
+	maker.dimensions[2] = ( opts.textureType == TT_CUBIC ) ? 6 : 0;
 	maker.mipLevels = opts.numLevels;
 	// images the engine copies the screen into go through the 2D engine
 	if ( !IsCompressed() && opts.numLevels == 1 && opts.textureType == TT_2D ) {
 		maker.flags |= DkImageFlags_Usage2DEngine;
 		dkData->copyTarget = true;
 	}
+
+	Dk_FixTileSize( maker, IsCompressed() ? ( maker.dimensions[1] + 3 ) / 4 : maker.dimensions[1] );
 
 	DkImageLayout layout;
 	dkImageLayoutInitialize( &layout, &maker );
@@ -193,9 +221,13 @@ void idImage::SubImageUpload( int mipLevel, int x, int y, int z, int width, int 
 	dkImageViewDefaults( &view, &dkData->image );
 	view.mipLevelOffset = mipLevel;
 	view.mipLevelCount = 1;
+	if ( opts.textureType == TT_CUBIC ) {
+		view.layerOffset = z;
+		view.layerCount = 1;
+	}
 
-	DkCopyBuf buffer = { source, 0, 0 };
-	DkImageRect rect = { (uint32_t)x, (uint32_t)y, (uint32_t)z, (uint32_t)width, (uint32_t)height, 1 };
+	DkCopyBuf buffer = { source, rowBytes, rowBytes * rows };
+	DkImageRect rect = { (uint32_t)x, (uint32_t)y, 0, (uint32_t)width, (uint32_t)height, 1 };
 	dkCmdBufCopyBufferToImage( dkr.uploadCmd, &buffer, &view, &rect, 0 );
 }
 
@@ -407,6 +439,11 @@ bool idImage::LoadPrecompressed() {
 	opts.width = header->width;
 	opts.height = header->height;
 	opts.numLevels = ( header->flags & DDSF_MIPMAPCOUNT ) ? Max( 1u, header->mipMapCount ) : 1;
+	int possibleLevels = 1;
+	for ( int size = Max( opts.width, opts.height ); size > 1; size >>= 1 ) {
+		possibleLevels++;
+	}
+	opts.numLevels = Min( opts.numLevels, possibleLevels );
 	sourceFileTime = timestamp;
 
 	AllocImage();

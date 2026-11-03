@@ -42,6 +42,7 @@ static FILE *		s_logFile = NULL;
 static u64			s_logLastFlush = 0;
 static Mutex		s_logMutex;
 static char			s_fatalError[1024];
+static char			s_fatalMessage[1024];
 static int			s_loadingBoostDepth = 0;
 static bool			s_perfConfigChanged = false;
 
@@ -166,6 +167,7 @@ void Sys_Error( const char *error, ... ) {
 	va_end( ap );
 
 	Switch_WriteFatalFile( text );
+	idStr::Copynz( s_fatalMessage, text, sizeof( s_fatalMessage ) );
 	Sys_Printf( "ERROR: %s\n", text );
 	Switch_Exit( EXIT_FAILURE );
 }
@@ -644,9 +646,45 @@ static void *Switch_EngineThread( void * ) {
 	return NULL;
 }
 
+/*
+================
+Switch_ShowMessage
+
+The console's own text screen, for what the player must read. The renderer is not
+running at this point: before it starts, or after it shut down.
+================
+*/
+static void Switch_ShowMessage( const char *title, const char *message ) {
+	consoleInit( NULL );
+	printf( "\n  %s\n\n  %s\n\n  Press + to exit.\n", title, message );
+	consoleUpdate( NULL );
+
+	padConfigureInput( 1, HidNpadStyleSet_NpadStandard );
+	PadState pad;
+	padInitializeDefault( &pad );
+	while ( appletMainLoop() ) {
+		padUpdate( &pad );
+		if ( padGetButtonsDown( &pad ) & HidNpadButton_Plus ) {
+			break;
+		}
+		consoleUpdate( NULL );
+	}
+	consoleExit( NULL );
+}
+
+// the album's applet mode leaves a fraction of the memory the game needs
+static const u64 MIN_MEMORY_BYTES = 2800ULL * 1024 * 1024;
+
 int main( int argc, char **argv ) {
 	s_argc = argc;
 	s_argv = argv;
+
+	u64 totalMemory = 0;
+	svcGetInfo( &totalMemory, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0 );
+	if ( totalMemory < MIN_MEMORY_BYTES ) {
+		Switch_ShowMessage( "Prey needs more memory.", "Start it from a forwarder, or hold R while starting a game, not from the album." );
+		return EXIT_FAILURE;
+	}
 
 	// stdout over the network when started with `nxlink -s`
 	if ( __nxlink_host.s_addr != 0 && R_SUCCEEDED( socketInitializeDefault() ) ) {
@@ -681,6 +719,9 @@ int main( int argc, char **argv ) {
 	GLimp_ReleaseForExit();
 	Switch_RestoreClocks();
 	Switch_FlushLog();
+	if ( s_exitCode != EXIT_SUCCESS && s_fatalMessage[0] ) {
+		Switch_ShowMessage( "Prey stopped with an error:", s_fatalMessage );
+	}
 	if ( s_logFile ) {
 		fclose( s_logFile );
 		s_logFile = NULL;

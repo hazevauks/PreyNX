@@ -33,13 +33,13 @@ layout(std140, binding = 2) uniform VsLocal {
 
 #define TRANSFORM( p ) vec4( dot( p, mvp[0] ), dot( p, mvp[1] ), dot( p, mvp[2] ), dot( p, mvp[3] ) )
 
-layout(location = 0) out vec2 vTexCoord;
-layout(location = 1) out vec4 vColor;
+layout(location = 0) out vec4 vTexCoord;
+layout(location = 8) out vec4 vColor;
 
 void main() {
 	const vec4 p = vec4( inPosition, 1.0 );
 	const vec4 t = vec4( inTexCoord, 0.0, 1.0 );
 	gl_Position = TRANSFORM( p );
-	vTexCoord = vec2( dot( t, TEX_S ), dot( t, TEX_T ) );
+	vTexCoord = vec4( dot( t, TEX_S ), dot( t, TEX_T ), 0.0, 1.0 );
 	vColor = ( inColor * COLOR_MODE.x + COLOR_MODE.y ) * COLOR;
 }

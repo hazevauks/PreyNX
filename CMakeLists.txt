@@ -15,6 +15,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 option(PREY_LTO "Link-time optimization (slower links, faster game)" OFF)
+option(PREY_DEKO3D_DEBUG "Link deko3D's debug library, which reports errors instead of ending the process" ON)
 
 set(SRC ${CMAKE_SOURCE_DIR}/src)
 
@@ -70,7 +71,12 @@ target_link_options(prey PRIVATE
 	-Wl,-Map=${CMAKE_BINARY_DIR}/prey.map
 	-Wl,--gc-sections
 )
-target_link_libraries(prey PRIVATE deko3d openal z nx m)
+if(PREY_DEKO3D_DEBUG)
+	set(PREY_DEKO3D_LIBRARY deko3dd)
+else()
+	set(PREY_DEKO3D_LIBRARY deko3d)
+endif()
+target_link_libraries(prey PRIVATE ${PREY_DEKO3D_LIBRARY} openal z nx m)
 add_dependencies(prey prey_game_object_target prey_shaders)
 
 nx_generate_nacp(prey.nacp

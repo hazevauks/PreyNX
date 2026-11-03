@@ -9,7 +9,7 @@
 
 // RAVEN BEGIN
 // rjohnson: this is the name of the game we are making
-#define PROJECT_NAME					"OpenPrey"
+#define PROJECT_NAME					"Prey"
 #define PROJECT_AUTHOR					"themuffinator"
 #define PROJECT_COMPANY				"DarkMatter Productions"
 #define PROJECT_VERSION				"0.0.1"

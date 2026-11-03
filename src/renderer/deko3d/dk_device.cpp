@@ -13,6 +13,7 @@ PreyNX - native deko3D renderer: device, memory, swapchain and frame pacing.
 #include <switch.h>
 
 #include "dk_local.h"
+#include "../../sys/switch/switch_local.h"
 
 dkGlobals_t	dkr;
 
@@ -25,10 +26,15 @@ static const uint32_t IMAGE_BYTES_MAX		= 1536u * 1024 * 1024;
 static const uint32_t VERTEX_BLOCK_SIZE		= 64 * 1024 * 1024;
 static const uint32_t VERTEX_BYTES_MAX		= 512 * 1024 * 1024;
 
-static const int MAX_IMAGE_DESCRIPTORS		= 8192;
+// a command can write a little past what it reserves, so each piece of command memory keeps a gap
+static const uint32_t CMD_MEMORY_GAP		= 256;
+
+static const int MAX_IMAGE_DESCRIPTORS		= DK_MAX_IMAGE_DESCRIPTORS;
 static const int NUM_FILTERS				= 3;
-static const int NUM_REPEATS				= 5;
-static const int NUM_SAMPLERS				= NUM_FILTERS * NUM_REPEATS;
+static const int NUM_REPEATS				= 6;
+static const int NUM_SAMPLERS				= DK_NUM_SAMPLERS;
+
+static idCVar r_dkZcull( "r_dkZcull", "0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL | CVAR_INIT, "use the GPU's coarse depth culling (read at startup)" );
 
 static DkMemBlock	s_cmdBlock;
 static DkMemBlock	s_uploadCmdBlock;
@@ -196,20 +202,29 @@ static void Dk_CmdOutOfMemory( void *userData, DkCmdBuf cmdbuf, size_t minReqSiz
 		common->FatalError( "deko3D: the frame's command memory ran out" );
 	}
 	const uint32_t offset = Dk_FrameCmdOffset( dkr.frameIndex ) + CMD_MEMORY_PER_FRAME + s_overflowUsed;
-	dkCmdBufAddMemory( cmdbuf, s_cmdBlock, offset, size );
+	dkCmdBufAddMemory( cmdbuf, s_cmdBlock, offset, size - CMD_MEMORY_GAP );
 	s_overflowUsed += size;
 }
 
 static void Dk_ResetFrameCommands( void ) {
 	s_overflowUsed = 0;
 	dkCmdBufClear( dkr.cmd );
-	dkCmdBufAddMemory( dkr.cmd, s_cmdBlock, Dk_FrameCmdOffset( dkr.frameIndex ), CMD_MEMORY_PER_FRAME );
+	dkCmdBufAddMemory( dkr.cmd, s_cmdBlock, Dk_FrameCmdOffset( dkr.frameIndex ), CMD_MEMORY_PER_FRAME - CMD_MEMORY_GAP );
 }
 
+// only the debug library reports through this; the release one ends the process silently
 static void Dk_DebugError( void *userData, const char *context, DkResult result, const char *message ) {
 	common->Printf( "deko3D error %d in %s: %s\n", result, context ? context : "?", message ? message : "" );
+	Switch_FlushLog();
 	if ( result != DkResult_Success ) {
 		Sys_Error( "deko3D error %d in %s: %s", result, context ? context : "?", message ? message : "" );
+	}
+}
+
+static void Dk_CheckQueue( const char *where ) {
+	if ( dkQueueIsInErrorState( dkr.queue ) ) {
+		Switch_FlushLog();
+		Sys_Error( "deko3D: the GPU reported a fault (%s), after %u frames", where, dkr.frameCount );
 	}
 }
 
@@ -268,15 +283,16 @@ static void Dk_InitSamplers( void ) {
 				case TR_CLAMP:
 					wrap = DkWrapMode_ClampToEdge;
 					break;
-				case TR_CLAMP_TO_ZERO:
-					wrap = DkWrapMode_ClampToBorder;
-					sampler.borderColor[0].value_f = sampler.borderColor[1].value_f = sampler.borderColor[2].value_f = 0.0f;
-					sampler.borderColor[3].value_f = 1.0f;
-					break;
+				case TR_CLAMP_TO_BORDER:
 				case TR_CLAMP_TO_ZERO_ALPHA:
 					wrap = DkWrapMode_ClampToBorder;
 					sampler.borderColor[0].value_f = sampler.borderColor[1].value_f = sampler.borderColor[2].value_f = 0.0f;
 					sampler.borderColor[3].value_f = 0.0f;
+					break;
+				case TR_CLAMP_TO_ZERO:
+					wrap = DkWrapMode_ClampToBorder;
+					sampler.borderColor[0].value_f = sampler.borderColor[1].value_f = sampler.borderColor[2].value_f = 0.0f;
+					sampler.borderColor[3].value_f = 1.0f;
 					break;
 				default:
 					break;
@@ -296,8 +312,9 @@ void Dk_SubmitUploads( void ) {
 	if ( !s_uploadsPending && !s_descriptorsDirty ) {
 		return;
 	}
-	// new images need their descriptors read again, and the cache of what was overwritten dropped
-	dkCmdBufBarrier( dkr.uploadCmd, DkBarrier_None, DkInvalidateFlags_Image | DkInvalidateFlags_Descriptors );
+	// new images need their descriptors read again, new shaders their code, and the cache of
+	// what was overwritten must go, with nothing still using it
+	dkCmdBufBarrier( dkr.uploadCmd, DkBarrier_Primitives, DkInvalidateFlags_Image | DkInvalidateFlags_Descriptors | DkInvalidateFlags_Shader );
 	dkQueueSubmitCommands( dkr.queue, dkCmdBufFinishList( dkr.uploadCmd ) );
 	dkQueueSignalFence( dkr.queue, &s_stagingFence, false );
 	dkQueueFlush( dkr.queue );
@@ -309,7 +326,7 @@ void Dk_SubmitUploads( void ) {
 static void Dk_ResetUploadCommands( void ) {
 	s_uploadCommands = 0;
 	dkCmdBufClear( dkr.uploadCmd );
-	dkCmdBufAddMemory( dkr.uploadCmd, s_uploadCmdBlock, 0, UPLOAD_CMD_MEMORY );
+	dkCmdBufAddMemory( dkr.uploadCmd, s_uploadCmdBlock, 0, UPLOAD_CMD_MEMORY - CMD_MEMORY_GAP );
 }
 
 void *Dk_UploadSpace( uint32_t size, uint32_t align, DkGpuAddr &gpuAddr ) {
@@ -392,6 +409,7 @@ void Dk_BeginFrame( void ) {
 		return;
 	}
 	Dk_SubmitUploads();
+	Dk_CheckQueue( "acquire" );
 	dkr.imageSlot = dkQueueAcquireImage( dkr.queue, dkr.swapchain );
 	Dk_ResetState();
 	Dk_BindRenderTarget();
@@ -402,6 +420,7 @@ void Dk_Present( void ) {
 		Dk_BeginFrame();
 	}
 	Dk_SubmitUploads();
+	Dk_CheckQueue( "present" );
 
 	dkCmdBufDiscardDepthStencil( dkr.cmd );
 	dkCmdBufSignalFence( dkr.cmd, &s_frameFences[dkr.frameIndex], true );
@@ -440,14 +459,14 @@ static DkMemBlock Dk_MakeBlock( uint32_t size, uint32_t flags ) {
 static void Dk_CreateFramebuffers( void ) {
 	DkImageLayoutMaker maker;
 	dkImageLayoutMakerDefaults( &maker, dkr.device );
-	maker.flags = DkImageFlags_UsageRender | DkImageFlags_Usage2DEngine | DkImageFlags_HwCompression;
+	maker.flags = DkImageFlags_UsageRender | DkImageFlags_HwCompression;
 	maker.format = DkImageFormat_Z24S8;
 	maker.dimensions[0] = DK_SCREEN_WIDTH;
 	maker.dimensions[1] = DK_SCREEN_HEIGHT;
 	DkImageLayout depthLayout;
 	dkImageLayoutInitialize( &depthLayout, &maker );
 
-	maker.flags = DkImageFlags_UsageRender | DkImageFlags_UsagePresent | DkImageFlags_Usage2DEngine;
+	maker.flags = DkImageFlags_UsageRender | DkImageFlags_UsagePresent | DkImageFlags_Usage2DEngine | DkImageFlags_HwCompression;
 	maker.format = DkImageFormat_RGBA8_Unorm;
 	DkImageLayout colorLayout;
 	dkImageLayoutInitialize( &colorLayout, &maker );
@@ -481,7 +500,7 @@ bool Dk_Init( void ) {
 
 	DkDeviceMaker deviceMaker;
 	dkDeviceMakerDefaults( &deviceMaker );
-	deviceMaker.flags = DkDeviceFlags_DepthMinusOneToOne | DkDeviceFlags_OriginLowerLeft;
+	deviceMaker.flags = DkDeviceFlags_DepthMinusOneToOne | DkDeviceFlags_OriginUpperLeft;
 	deviceMaker.cbDebug = Dk_DebugError;
 	dkr.device = dkDeviceCreate( &deviceMaker );
 	if ( !dkr.device ) {
@@ -506,9 +525,9 @@ bool Dk_Init( void ) {
 
 	DkQueueMaker queueMaker;
 	dkQueueMakerDefaults( &queueMaker, dkr.device );
-	queueMaker.flags = DkQueueFlags_Graphics | DkQueueFlags_HighPrio;
-	queueMaker.commandMemorySize = 2 * 1024 * 1024;
-	queueMaker.flushThreshold = 512 * 1024;
+	queueMaker.flags = DkQueueFlags_Graphics | DkQueueFlags_MediumPrio | ( r_dkZcull.GetBool() ? DkQueueFlags_EnableZcull : DkQueueFlags_DisableZcull );
+	queueMaker.commandMemorySize = 1024 * 1024;
+	queueMaker.flushThreshold = queueMaker.commandMemorySize / 8;
 	dkr.queue = dkQueueCreate( &queueMaker );
 
 	DkCmdBufMaker cmdMaker;

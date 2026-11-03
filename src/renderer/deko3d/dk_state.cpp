@@ -205,10 +205,11 @@ void Dk_ResetState( void ) {
 	s_format = VFMT_NONE;
 	s_dirty = DIRTY_ALL & ~DIRTY_PROGRAM & ~DIRTY_FORMAT;
 	s_textureDirty = 0;
-	memset( s_textures, 0, sizeof( s_textures ) );
+	memset( s_textures, 0xff, sizeof( s_textures ) );
 
-	dkCmdBufBindImageDescriptorSet( dkr.cmd, dkMemBlockGetGpuAddr( dkr.imageDescriptorBlock ), 8192 );
-	dkCmdBufBindSamplerDescriptorSet( dkr.cmd, dkMemBlockGetGpuAddr( dkr.samplerDescriptorBlock ), 15 );
+	dkCmdBufBindImageDescriptorSet( dkr.cmd, dkMemBlockGetGpuAddr( dkr.imageDescriptorBlock ), DK_MAX_IMAGE_DESCRIPTORS );
+	dkCmdBufBindSamplerDescriptorSet( dkr.cmd, dkMemBlockGetGpuAddr( dkr.samplerDescriptorBlock ), DK_NUM_SAMPLERS );
+	dkCmdBufBarrier( dkr.cmd, DkBarrier_None, DkInvalidateFlags_Descriptors | DkInvalidateFlags_Shader );
 	dkCmdBufBindMultisampleState( dkr.cmd, &s_multisample );
 
 	for ( int i = 0; i < UB_COUNT; i++ ) {
@@ -334,13 +335,14 @@ void Dk_SetTexture( int unit, DkResHandle handle ) {
 	}
 }
 
+// the engine measures y from the bottom of the screen
 void Dk_SetViewport( int x, int y, int w, int h, float minDepth, float maxDepth ) {
-	DkViewport viewport = { (float)x, (float)y, (float)w, (float)h, minDepth, maxDepth };
+	DkViewport viewport = { (float)x, (float)( DK_SCREEN_HEIGHT - y - h ), (float)w, (float)h, minDepth, maxDepth };
 	dkCmdBufSetViewports( dkr.cmd, 0, &viewport, 1 );
 }
 
 void Dk_SetScissor( int x, int y, int w, int h ) {
-	DkScissor scissor = { (uint32_t)x, (uint32_t)y, (uint32_t)w, (uint32_t)h };
+	DkScissor scissor = { (uint32_t)x, (uint32_t)( DK_SCREEN_HEIGHT - y - h ), (uint32_t)w, (uint32_t)h };
 	dkCmdBufSetScissors( dkr.cmd, 0, &scissor, 1 );
 }
 
@@ -452,7 +454,7 @@ void Dk_FlushForDraw( void ) {
 		uint32_t mask = s_textureDirty;
 		s_textureDirty = 0;
 		for ( int unit = 0; mask; unit++, mask >>= 1 ) {
-			if ( ( mask & 1 ) && s_textures[unit] ) {
+			if ( mask & 1 ) {
 				dkCmdBufBindTexture( dkr.cmd, DkStage_Fragment, unit, s_textures[unit] );
 			}
 		}

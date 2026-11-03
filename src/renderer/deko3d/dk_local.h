@@ -3,8 +3,10 @@
 
 PreyNX - native deko3D renderer, internal interface.
 
-The device runs with OpenGL's conventions (lower left origin, depth -1..1) so
-the engine's matrices and the game's programs work unchanged:
+The device keeps clip space y up and depth -1..1, as on OpenGL, so the engine's
+matrices and winding work unchanged. The screen's first row is its top, so the
+window coordinates of viewports, scissors and fragment positions are converted
+from OpenGL's bottom up ones.
 	dk_device.cpp	device, memory, swapchain, command buffers, frame pacing
 	dk_image.cpp	idImage: storage, uploads, precompressed files, screen copies
 	dk_state.cpp	GL_State and everything the draws share
@@ -24,6 +26,9 @@ static const int DK_SCREEN_HEIGHT		= 720;
 static const int DK_SWAP_IMAGES			= 3;
 static const int DK_FRAMES_IN_FLIGHT	= 2;
 static const int DK_MAX_TEXTURE_UNITS	= 8;
+static const int DK_MAX_IMAGE_DESCRIPTORS = 8192;
+static const int DK_NUM_SAMPLERS		= 18;		// texture filters * texture repeats
+static const int DK_FS_ENV_SCREEN_SIZE	= 7;		// fragment env register with the screen's size
 
 /*
 ================================================================================

@@ -122,7 +122,8 @@ MSYS2 shell, or from the `devkitpro/devkita64` container:
 ./build.sh
 ```
 
-The result is `build/prey.nro`. How the port is put together is in [docs/](docs/).
+The result is `build/prey.nro`. How the port is put together is in [docs/architecture.md](docs/architecture.md), and what has been tested is in
+[docs/status.md](docs/status.md).
 
 ## Credits
 

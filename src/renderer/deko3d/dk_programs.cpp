@@ -26,12 +26,12 @@ static const char *CARD_SHADER_PATH		= "sdmc:/switch/prey/shaders/";
 
 typedef struct {
 	const char *	vertex;
-	const char *	fragment;		// NULL for depth or stencil only
+	const char *	fragment;
 } dkFixedProgramDef_t;
 
 static const dkFixedProgramDef_t s_fixedDefs[DKP_COUNT] = {
-	{ "depth", NULL },
-	{ "depth_clip", NULL },
+	{ "depth", "depth" },
+	{ "depth_clip", "depth" },
 	{ "depth_alpha", "depth_alpha" },
 	{ "stage", "stage" },
 	{ "stage_normal_cube", "stage_cube" },
@@ -39,7 +39,7 @@ static const dkFixedProgramDef_t s_fixedDefs[DKP_COUNT] = {
 	{ "stage_screen", "stage_screen" },
 	{ "color", "color" },
 	{ "depth_clip", "color" },
-	{ "shadow", NULL },
+	{ "shadow", "depth" },
 	{ "interaction", "interaction" },
 	{ "environment", "environment" },
 	{ "bumpyenvironment", "bumpyenvironment" },
@@ -86,6 +86,7 @@ static bool Dk_LoadShaderFile( const char *path, DkShader &shader ) {
 		return false;
 	}
 	s_codeHead = offset + size;
+	Dk_DescriptorsChanged();	// the next submission drops the code cache too
 
 	DkShaderMaker maker;
 	dkShaderMakerDefaults( &maker, s_codeBlock, offset );
@@ -108,16 +109,22 @@ void Dk_InitPrograms( void ) {
 	maker.flags = DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached | DkMemBlockFlags_Code;
 	s_codeBlock = dkMemBlockCreate( &maker );
 	s_codeHead = 0;
-	s_numMaterialPrograms = 0;
 
-	if ( R_FAILED( romfsInit() ) ) {
+	// materials keep their program indexes across a renderer restart
+	for ( int i = 0; i < s_numMaterialPrograms; i++ ) {
+		s_materialPrograms[i].loaded = false;
+		s_materialPrograms[i].missing = false;
+	}
+
+	// a forwarder may not say where the NRO is
+	if ( R_FAILED( romfsInit() ) && R_FAILED( romfsMountFromFsdev( "sdmc:/switch/prey/prey.nro", 0, "romfs" ) ) ) {
 		common->FatalError( "deko3D: the NRO's romfs could not be mounted" );
 	}
 	for ( int i = 0; i < DKP_COUNT; i++ ) {
 		if ( !Dk_LoadNamedShader( s_fixedDefs[i].vertex, "vert", s_fixedVertex[i] ) ) {
 			common->FatalError( "deko3D: missing shader %s.vert", s_fixedDefs[i].vertex );
 		}
-		if ( s_fixedDefs[i].fragment && !Dk_LoadNamedShader( s_fixedDefs[i].fragment, "frag", s_fixedFragment[i] ) ) {
+		if ( !Dk_LoadNamedShader( s_fixedDefs[i].fragment, "frag", s_fixedFragment[i] ) ) {
 			common->FatalError( "deko3D: missing shader %s.frag", s_fixedDefs[i].fragment );
 		}
 	}
@@ -132,7 +139,7 @@ void Dk_ShutdownPrograms( void ) {
 }
 
 void Dk_UseFixedProgram( dkFixedProgram_t program ) {
-	Dk_SetProgram( &s_fixedVertex[program], s_fixedDefs[program].fragment ? &s_fixedFragment[program] : NULL );
+	Dk_SetProgram( &s_fixedVertex[program], &s_fixedFragment[program] );
 }
 
 const DkShader *Dk_FixedVertexShader( dkFixedProgram_t program ) {
@@ -170,10 +177,48 @@ int R_FindARBProgram( GLenum target, const char *program ) {
 	return s_numMaterialPrograms;
 }
 
+/*
+================
+R_ARBProgramUsesInteractionInputs
+
+Interaction programs are the ones that sample the light falloff and projection
+textures. Varyings do not tell: tangent space warps like distort.vfp use the same ones.
+================
+*/
 bool R_ARBProgramUsesInteractionInputs( GLenum target, const char *program ) {
-	idStr name = program;
-	name.ToLower();
-	return name.Find( "interaction" ) >= 0;
+	if ( target != GL_FRAGMENT_PROGRAM_ARB ) {
+		return false;
+	}
+
+	idStr fileName = "glprogs/";
+	fileName += program;
+	void *buffer = NULL;
+	if ( fileSystem->ReadFile( fileName.c_str(), &buffer ) <= 0 || !buffer ) {
+		return false;
+	}
+
+	idStr source = (const char *)buffer;
+	fileSystem->FreeFile( buffer );
+
+	const int start = source.Find( "!!ARBfp" );
+	if ( start < 0 ) {
+		return false;
+	}
+
+	// comments and spacing out
+	idStr code;
+	bool comment = false;
+	for ( int i = start; i < source.Length(); i++ ) {
+		const char c = source[i];
+		if ( c == '#' ) {
+			comment = true;
+		} else if ( c == '\n' || c == '\r' ) {
+			comment = false;
+		} else if ( !comment && c != ' ' && c != '\t' ) {
+			code.Append( c );
+		}
+	}
+	return code.Find( "texture[2]" ) >= 0 && code.Find( "texture[3]" ) >= 0;
 }
 
 const DkShader *Dk_MaterialShader( int programIndex ) {

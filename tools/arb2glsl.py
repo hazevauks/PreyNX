@@ -157,7 +157,8 @@ class Translator:
 
         if self.stage == "frag":
             if name == "fragment.position":
-                return "gl_FragCoord"
+                # the programs measure y from the bottom of the screen, as OpenGL does
+                return "vec4( gl_FragCoord.x, env[7].x - gl_FragCoord.y, gl_FragCoord.zw )"
             match = re.fullmatch(r"fragment\.texcoord(?:\[(\d+)\])?", name)
             if match:
                 return self.input_var("vTexCoord%s" % (match.group(1) or "0"), self.texcoord_location(match.group(1) or "0"))
