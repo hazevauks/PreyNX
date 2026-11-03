@@ -129,20 +129,24 @@ public:
 
 #endif // _WINDOWS
 
-#ifdef __linux__
+#if defined( __linux__ ) || defined( __SWITCH__ )
 
 // for offsetof
 #include <stddef.h>
 // FLT_MAX and such
 #include <limits.h>
 #include <float.h>
+// newlib defines _LITTLE_ENDIAN with a value and compares it, so it must come first
+#include <sys/types.h>
 
 	#define __WITH_PB__
 	#undef WIN32
 	#undef _XBOX
 	#undef _CONSOLE
 	#define _OPENGL
+	#ifndef _LITTLE_ENDIAN
 	#define _LITTLE_ENDIAN
+	#endif
 	#define _CASE_SENSITIVE_FILESYSTEM
 	#define _USE_OPENAL
 
